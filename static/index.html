@@ -96,7 +96,7 @@
 
 <div id="bar">
   <button id="btnStart">▶ Старт</button>
-  <button id="btnAdd">➕ Пост</button>
+  <button id="btnAdd">➕ Гаи</button>
   <button id="btnFollow" aria-label="К моей позиции">📍</button>
 </div>
 <div id="toast"></div>
@@ -167,7 +167,7 @@ function notify(level) {
   beep(times, level <= 200 ? 1040 : 880);
   try { tg?.HapticFeedback?.notificationOccurred(level <= 200 ? 'error' : 'warning'); } catch (e) {}
   try { navigator.vibrate?.(level <= 200 ? [200, 100, 200, 100, 200] : [250]); } catch (e) {}
-  speak(`Впереди пост, ${level} метров`);
+  speak(`Впереди Гаи, ${level} метров`);
 }
 
 // ───── Карта (Яндекс) ─────
@@ -315,7 +315,7 @@ function closeSheet() { selId = null; $('sheet').hidden = true; }
 async function vote(id, v) {
   try {
     await api(`/api/points/${id}/vote`, { method: 'POST', body: JSON.stringify({ value: v }) });
-    toast(v > 0 ? 'Спасибо, пост подтверждён' : 'Принято'); closeSheet(); loadPoints();
+    toast(v > 0 ? 'Спасибо, местонахождение Гаи подтверждено' : 'Принято'); closeSheet(); loadPoints();
   } catch (e) { toast('Ошибка: ' + e.message); }
 }
 
@@ -348,13 +348,13 @@ function renderBanner(ahead) {
   if (!started) return;
   if (!ahead.length) {
     el.className = 'idle warn';
-    el.innerHTML = '<div class="big">✅</div><div class="txt"><b>Впереди чисто</b>Постов в радиусе 1 км нет</div>';
+    el.innerHTML = '<div class="big">✅</div><div class="txt"><b>Впереди чисто</b>Гаи в радиусе 1 км нет</div>';
     return;
   }
   const { p, d } = ahead[0];
   const sub = ahead.length > 1 ? 'Ещё постов: ' + (ahead.length - 1) : (p.age_min + ' мин назад');
   el.className = d <= 300 ? 'danger' : 'warn';
-  el.innerHTML = `<div class="big">${fmtDist(d)}</div><div class="txt"><b>Пост ГАИ впереди</b>${sub}</div>`;
+  el.innerHTML = `<div class="big">${fmtDist(d)}</div><div class="txt"><b>ГАИ впереди</b>${sub}</div>`;
 }
 
 // ───── Кнопки ─────
@@ -377,10 +377,10 @@ $('btnStart').onclick = async () => {
 $('btnAdd').onclick = () => {
   if (!me) { toast('Сначала дождитесь GPS'); return; }
   const go = async () => {
-    try { await api('/api/points', { method: 'POST', body: JSON.stringify({ lat: me.lat, lon: me.lon }) }); toast('Пост добавлен'); loadPoints(); }
+    try { await api('/api/points', { method: 'POST', body: JSON.stringify({ lat: me.lat, lon: me.lon }) }); toast('Местонахождение Гаи добавлено'); loadPoints(); }
     catch (e) { toast('Ошибка: ' + e.message); }
   };
-  if (tg?.showConfirm) tg.showConfirm('Отметить пост ГАИ в вашей позиции?', ok => ok && go()); else go();
+  if (tg?.showConfirm) tg.showConfirm('Отметить ГАИ в вашей позиции?', ok => ok && go()); else go();
 };
 $('btnFollow').onclick = () => { follow = true; if (me) flyTo(me.lat, me.lon, Math.max(map.zoom, 16), 500); };
 $('btnMode').onclick = () => set3d(!is3d);
