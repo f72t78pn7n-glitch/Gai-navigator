@@ -1,1 +1,306 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Навигатор постов</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  :root {
+    --ink: #151a21;
+    --amber: #ffb400;
+    --red: #e5383b;
+    --green: #2fbf71;
+    font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; background: var(--ink); overflow: hidden; }
+  #map { position: absolute; inset: 0; }
 
+  #banner {
+    position: absolute; left: 10px; right: 10px;
+    top: calc(env(safe-area-inset-top, 0px) + 10px);
+    z-index: 1000; border-radius: 16px; padding: 14px 16px;
+    background: var(--ink); color: #fff;
+    display: flex; align-items: center; gap: 14px;
+    box-shadow: 0 6px 24px rgba(0,0,0,.35);
+    border-left: 8px solid var(--amber);
+  }
+  #banner.warn { border-left-color: var(--amber); }
+  #banner.danger { border-left-color: var(--red); background: #3a1416; animation: pulse .8s ease-in-out infinite alternate; }
+  #banner .big { font-size: 34px; font-weight: 800; line-height: 1; min-width: 108px; font-variant-numeric: tabular-nums; }
+  #banner .txt { font-size: 15px; line-height: 1.25; opacity: .9; }
+  #banner .txt b { display: block; font-size: 17px; opacity: 1; }
+  #banner.idle .big { font-size: 22px; min-width: 0; }
+  @keyframes pulse { from { box-shadow: 0 0 0 0 rgba(229,56,59,.0), 0 6px 24px rgba(0,0,0,.35); } to { box-shadow: 0 0 0 6px rgba(229,56,59,.45), 0 6px 24px rgba(0,0,0,.35); } }
+  @media (prefers-reduced-motion: reduce) { #banner.danger { animation: none; } }
+
+  #bar {
+    position: absolute; left: 10px; right: 10px;
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 10px);
+    z-index: 1000; display: flex; gap: 8px;
+  }
+  #bar button {
+    flex: 1; border: 0; border-radius: 14px; padding: 15px 8px;
+    font-size: 15px; font-weight: 700; color: #fff; background: var(--ink);
+    box-shadow: 0 4px 16px rgba(0,0,0,.3);
+  }
+  #bar button:active { transform: scale(.97); }
+  #bar button:focus-visible { outline: 3px solid var(--amber); outline-offset: 2px; }
+  #btnStart { background: var(--amber); color: var(--ink); flex: 2; }
+  #btnStart.on { background: var(--green); color: #fff; }
+  #status {
+    position: absolute; left: 12px; z-index: 1000; font-size: 12px; color: #fff;
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 74px);
+    background: rgba(21,26,33,.8); padding: 4px 10px; border-radius: 10px;
+  }
+
+  .pt { font-size: 28px; line-height: 1; filter: drop-shadow(0 2px 3px rgba(0,0,0,.5)); text-align: center; }
+  .pt.old { opacity: .55; }
+  .me-wrap { width: 34px; height: 34px; display: grid; place-items: center; }
+  .me-arrow {
+    width: 0; height: 0; border-left: 11px solid transparent; border-right: 11px solid transparent;
+    border-bottom: 26px solid #2d7ff9; filter: drop-shadow(0 2px 3px rgba(0,0,0,.5)); transition: transform .3s;
+  }
+  .popup b { display: block; margin-bottom: 2px; }
+  .popup small { color: #667; }
+  .popup .row { display: flex; gap: 6px; margin-top: 8px; }
+  .popup button { flex: 1; border: 0; border-radius: 8px; padding: 8px; font-weight: 700; background: #e9edf2; }
+  #toast {
+    position: absolute; left: 50%; transform: translateX(-50%); z-index: 2000;
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 110px);
+    background: var(--ink); color: #fff; padding: 10px 16px; border-radius: 12px; font-size: 14px;
+    opacity: 0; pointer-events: none; transition: opacity .2s; max-width: 90%;
+  }
+  #toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+
+<div id="banner" class="idle warn">
+  <div class="big">🚓</div>
+  <div class="txt"><b>Нажмите «Старт»</b>Включится слежение за позицией и звук</div>
+</div>
+
+<div id="status">GPS: ожидание…</div>
+
+<div id="bar">
+  <button id="btnStart">▶ Старт</button>
+  <button id="btnAdd">➕ Пост</button>
+  <button id="btnFollow" aria-label="К моей позиции">🎯</button>
+</div>
+<div id="toast"></div>
+
+<script>
+const tg = window.Telegram?.WebApp;
+if (tg) { tg.ready(); tg.expand(); try { tg.disableVerticalSwipes?.(); } catch (e) {} }
+
+const THRESHOLDS = [1000, 500, 200];
+const FRONT_ANGLE = 70;
+const LOAD_RADIUS = 5000;
+const POLL_MS = 5000;
+
+let me = null;
+let prev = null;
+let points = [];
+let started = false;
+let follow = true;
+let watchId = null;
+let wakeLock = null;
+let audioCtx = null;
+const alerted = new Set();
+const markers = new Map();
+
+const map = L.map('map', { zoomControl: false, attributionControl: false }).setView([55.75, 37.62], 13);
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+L.control.attribution({ prefix: false }).addAttribution('© OpenStreetMap').addTo(map);
+map.on('dragstart', () => { follow = false; });
+
+const meIcon = L.divIcon({ className: '', iconSize: [34, 34], iconAnchor: [17, 17],
+  html: '<div class="me-wrap"><div class="me-arrow" id="meArrow"></div></div>' });
+const meMarker = L.marker([55.75, 37.62], { icon: meIcon, zIndexOffset: 1000, interactive: false });
+
+const $ = id => document.getElementById(id);
+const toRad = d => d * Math.PI / 180, toDeg = r => r * 180 / Math.PI;
+function dist(a, b, c, d) {
+  const R = 6371000, dp = toRad(c - a), dl = toRad(d - b);
+  const x = Math.sin(dp / 2) ** 2 + Math.cos(toRad(a)) * Math.cos(toRad(c)) * Math.sin(dl / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(x));
+}
+function bearing(a, b, c, d) {
+  const y = Math.sin(toRad(d - b)) * Math.cos(toRad(c));
+  const x = Math.cos(toRad(a)) * Math.sin(toRad(c)) - Math.sin(toRad(a)) * Math.cos(toRad(c)) * Math.cos(toRad(d - b));
+  return (toDeg(Math.atan2(y, x)) + 360) % 360;
+}
+const angDiff = (a, b) => Math.abs(((a - b + 540) % 360) - 180);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const fmtDist = m => m >= 1000 ? (m / 1000).toFixed(1).replace('.', ',') + ' км' : Math.round(m) + ' м';
+function toast(t) { const el = $('toast'); el.textContent = t; el.classList.add('show'); setTimeout(() => el.classList.remove('show'), 2200); }
+
+async function api(path, opts = {}) {
+  const r = await fetch(path, { ...opts, headers: { 'Content-Type': 'application/json', 'X-Init-Data': tg?.initData || '', ...(opts.headers || {}) } });
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.status);
+  return r.json();
+}
+
+function initAudio() {
+  try { audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)(); audioCtx.resume(); } catch (e) {}
+}
+function beep(times = 1, freq = 880) {
+  if (!audioCtx) return;
+  for (let i = 0; i < times; i++) {
+    const t = audioCtx.currentTime + i * 0.28;
+    const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+    o.type = 'square'; o.frequency.value = freq;
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.25, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.22);
+    o.connect(g).connect(audioCtx.destination); o.start(t); o.stop(t + 0.25);
+  }
+}
+function speak(text) {
+  try {
+    if (!('speechSynthesis' in window)) return;
+    const u = new SpeechSynthesisUtterance(text); u.lang = 'ru-RU'; u.rate = 1.05;
+    speechSynthesis.cancel(); speechSynthesis.speak(u);
+  } catch (e) {}
+}
+function notify(level, d) {
+  const times = level <= 200 ? 3 : level <= 500 ? 2 : 1;
+  beep(times, level <= 200 ? 1040 : 880);
+  try { tg?.HapticFeedback?.notificationOccurred(level <= 200 ? 'error' : 'warning'); } catch (e) {}
+  try { navigator.vibrate?.(level <= 200 ? [200, 100, 200, 100, 200] : [250]); } catch (e) {}
+  speak(`Впереди пост, ${level} метров`);
+}
+
+function onPos(p) {
+  const c = p.coords;
+  let heading = (c.heading != null && !isNaN(c.heading) && (c.speed ?? 0) > 1) ? c.heading : null;
+  if (heading == null && prev && dist(prev.lat, prev.lon, c.latitude, c.longitude) > 12) {
+    heading = bearing(prev.lat, prev.lon, c.latitude, c.longitude);
+  }
+  if (heading == null && me) heading = me.heading;
+  if (!prev || dist(prev.lat, prev.lon, c.latitude, c.longitude) > 12) prev = { lat: c.latitude, lon: c.longitude };
+  const first = !me;
+  me = { lat: c.latitude, lon: c.longitude, heading, speed: c.speed };
+
+  meMarker.setLatLng([me.lat, me.lon]);
+  if (!map.hasLayer(meMarker)) meMarker.addTo(map);
+  const arrow = $('meArrow'); if (arrow && heading != null) arrow.style.transform = `rotate(${heading}deg)`;
+  if (first) { map.setView([me.lat, me.lon], 15); loadPoints(); }
+  else if (follow) map.panTo([me.lat, me.lon], { animate: true, duration: 0.5 });
+
+  const kmh = c.speed != null ? Math.round(c.speed * 3.6) : null;
+  $('status').textContent = `GPS ±${Math.round(c.accuracy)} м` + (kmh != null ? ` · ${kmh} км/ч` : '');
+  checkAlerts();
+}
+function onPosErr(e) {
+  $('status').textContent = 'GPS: нет доступа — разрешите геолокацию';
+}
+function startWatch() {
+  if (watchId != null) return;
+  if (!navigator.geolocation) { toast('Геолокация недоступна'); return; }
+  watchId = navigator.geolocation.watchPosition(onPos, onPosErr, { enableHighAccuracy: true, maximumAge: 1000, timeout: 20000 });
+}
+
+async function loadPoints() {
+  if (!me) return;
+  try {
+    const r = await api(`/api/points?lat=${me.lat}&lon=${me.lon}&radius=${LOAD_RADIUS}`);
+    points = r.points; renderMarkers(); checkAlerts();
+  } catch (e) { $('status').textContent = 'Нет связи с сервером'; }
+}
+function renderMarkers() {
+  const ids = new Set(points.map(p => p.id));
+  for (const [id, m] of markers) if (!ids.has(id)) { map.removeLayer(m); markers.delete(id); }
+  for (const p of points) {
+    const html = `<div class="popup"><b>🚓 Пост ГАИ</b><small>${esc(p.user_name)} · ${p.age_min} мин назад</small>
+      <div class="row"><button onclick="vote(${p.id},1)">👍 Стоит</button><button onclick="vote(${p.id},-1)">👎 Нет</button></div></div>`;
+    let m = markers.get(p.id);
+    const icon = L.divIcon({ className: '', iconSize: [30, 30], iconAnchor: [15, 15], html: `<div class="pt ${p.age_min > 60 ? 'old' : ''}">🚓</div>` });
+    if (!m) { m = L.marker([p.lat, p.lon], { icon }).addTo(map).bindPopup(html); markers.set(p.id, m); }
+    else { m.setLatLng([p.lat, p.lon]); m.setIcon(icon); m.setPopupContent(html); }
+  }
+}
+async function vote(id, v) {
+  try { await api(`/api/points/${id}/vote`, { method: 'POST', body: JSON.stringify({ value: v }) }); toast(v > 0 ? 'Спасибо, пост подтверждён' : 'Принято'); map.closePopup(); loadPoints(); }
+  catch (e) { toast('Ошибка: ' + e.message); }
+}
+window.vote = vote;
+
+function checkAlerts() {
+  if (!me) return;
+  const ahead = [];
+  for (const p of points) {
+    const d = dist(me.lat, me.lon, p.lat, p.lon);
+    const isAhead = me.heading == null || d < 60 || angleOK(p);
+    if (d > 1300 || !isAhead) { for (const t of THRESHOLDS) alerted.delete(`${p.id}:${t}`); }
+    if (d <= 1000 && isAhead) ahead.push({ p, d });
+  }
+  ahead.sort((a, b) => a.d - b.d);
+
+  if (started) {
+    for (const { p, d } of ahead) {
+      const level = THRESHOLDS.slice().reverse().find(t => d <= t);
+      if (!level) continue;
+      const key = `${p.id}:${level}`;
+      if (alerted.has(key)) continue;
+      for (const t of THRESHOLDS) if (t >= level) alerted.add(`${p.id}:${t}`);
+      notify(level, d);
+    }
+  }
+  renderBanner(ahead);
+}
+function angleOK(p) {
+  const b = bearing(me.lat, me.lon, p.lat, p.lon);
+  return angDiff(b, me.heading) <= FRONT_ANGLE;
+}
+function renderBanner(ahead) {
+  const el = $('banner');
+  if (!started) return;
+  if (!ahead.length) {
+    el.className = 'idle warn';
+    el.innerHTML = '<div class="big">✅</div><div class="txt"><b>Впереди чисто</b>Постов в радиусе 1 км нет</div>';
+    return;
+  }
+  const { p, d } = ahead[0];
+  el.className = d <= 300 ? 'danger' : 'warn';
+  el.innerHTML = `<div class="big">${fmtDist(d)}</div><div class="txt"><b>Пост ГАИ впереди</b>${ahead.length > 1 ? 'Ещё постов: ' + (ahead.length - 1) : esc(p.user_name) + ' · ' + p.age_min + ' мин назад'}</div>`;
+}
+
+$('btnStart').onclick = async () => {
+  const b = $('btnStart');
+  if (!started) {
+    started = true; initAudio(); startWatch(); beep(1, 660);
+    try { wakeLock = await navigator.wakeLock?.request('screen'); } catch (e) {}
+    b.textContent = '■ Стоп'; b.classList.add('on');
+    $('banner').className = 'idle warn';
+    $('banner').innerHTML = '<div class="big">📡</div><div class="txt"><b>Ищем вас…</b>Ждём сигнал GPS</div>';
+    checkAlerts();
+  } else {
+    started = false; b.textContent = '▶ Старт'; b.classList.remove('on');
+    try { await wakeLock?.release(); } catch (e) {} wakeLock = null;
+    $('banner').className = 'idle warn';
+    $('banner').innerHTML = '<div class="big">🚓</div><div class="txt"><b>Предупреждения выключены</b>Нажмите «Старт», чтобы включить</div>';
+  }
+};
+$('btnAdd').onclick = async () => {
+  if (!me) { toast('Сначала дождитесь GPS'); return; }
+  const go = async () => {
+    try { await api('/api/points', { method: 'POST', body: JSON.stringify({ lat: me.lat, lon: me.lon }) }); toast('Пост добавлен'); loadPoints(); }
+    catch (e) { toast('Ошибка: ' + e.message); }
+  };
+  if (tg?.showConfirm) tg.showConfirm('Отметить пост ГАИ в вашей позиции?', ok => ok && go()); else go();
+};
+$('btnFollow').onclick = () => { follow = true; if (me) map.setView([me.lat, me.lon], Math.max(map.getZoom(), 15)); };
+
+document.addEventListener('visibilitychange', async () => {
+  if (document.visibilityState === 'visible' && started) { try { wakeLock = await navigator.wakeLock?.request('screen'); } catch (e) {} }
+});
+
+startWatch();
+setInterval(loadPoints, POLL_MS);
+</script>
+</body>
+</html>
