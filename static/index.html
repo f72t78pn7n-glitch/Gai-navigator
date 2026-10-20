@@ -44,6 +44,12 @@
     bottom:calc(env(safe-area-inset-bottom,0px) + 74px); background:rgba(21,26,33,.8);
     padding:4px 10px; border-radius:10px; }
 
+  #speed { position:absolute; left:10px; bottom:calc(env(safe-area-inset-bottom,0px) + 108px); z-index:1000;
+    background:var(--ink); color:#fff; border-radius:16px; padding:8px 16px; text-align:center;
+    min-width:92px; box-shadow:0 4px 16px rgba(0,0,0,.35); }
+  #speed b { display:block; font-size:44px; line-height:1; font-variant-numeric:tabular-nums; }
+  #speed small { font-size:12px; opacity:.75; }
+
   .mk { transform:translate(-50%,-50%); padding:6px; cursor:pointer; }
   .pt { font-size:28px; line-height:1; filter:drop-shadow(0 2px 3px rgba(0,0,0,.5)); text-align:center; }
   .mk.old .pt { opacity:.55; }
@@ -77,9 +83,10 @@
 </div>
 
 <div id="tools">
-    <button id="btnTheme">🌙</button>
+  <button id="btnTheme">🌙</button>
   <button id="btnMode">2D</button>
   <button id="btnSat">Схема</button>
+  <button id="btnLang">🌐 RU</button>
 </div>
 
 <div id="sheet" hidden>
@@ -91,6 +98,7 @@
   </div>
 </div>
 
+<div id="speed"><b id="spVal">–</b><small id="spUnit">км/ч</small></div>
 <div id="status">GPS: ожидание…</div>
 
 <div id="bar">
@@ -101,11 +109,58 @@
 <div id="toast"></div>
 
 <script>
-// ───── ВСТАВЬТЕ СВОЙ КЛЮЧ ЯНДЕКС КАРТ ─────
+// ───── КЛЮЧ ЯНДЕКС КАРТ ─────
 const YKEY = 'de83d1ec-ae1d-4072-be81-d53aad446a97';
 
 const tg = window.Telegram?.WebApp;
 if (tg) { tg.ready(); tg.expand(); try { tg.disableVerticalSwipes?.(); } catch (e) {} }
+
+// ───── Переводы (русские тексты — ваши) ─────
+const I18N = {
+  ru: {
+    tap_t: 'Нажмите «Старт»', tap_s: 'Включится слежение за позицией и звук',
+    start: '▶ Старт', stop: '■ Стоп', add: '➕ Гаи', sch: 'Схема', sat: 'Спутн.',
+    search_t: 'Ищем вас…', search_s: 'Ждём сигнал GPS',
+    off_t: 'Предупреждения выключены', off_s: 'Нажмите «Старт», чтобы включить',
+    clear_t: 'Впереди чисто', clear_s: 'Гаи в радиусе 1 км нет',
+    post_ahead: 'ГАИ впереди', min_ago: '{n} мин назад', more: 'Ещё постов: {n}',
+    m: 'м', km: 'км', kmh: 'км/ч',
+    gps_wait: 'GPS: ожидание…', gps_acc: 'GPS ±{n} м', gps_denied: 'GPS: нет доступа — разрешите геолокацию',
+    no_server: 'Нет связи с сервером', wait_gps: 'Сначала дождитесь GPS',
+    confirm_post: 'Отметить ГАИ в вашей позиции?', post_added: 'Местонахождение Гаи добавлено', err: 'Ошибка: ',
+    thanks: 'Спасибо, местонахождение Гаи подтверждено', accepted: 'Принято',
+    geo_na: 'Геолокация недоступна', sat_na: 'Спутник недоступен',
+    sheet_title: '🚓 Пост ГАИ', up: '👍 Стоит', down: '👎 Нет',
+    map_fail_t: 'Карта не загрузилась', map_fail_s: 'Проверьте ключ и ограничения по домену',
+    key_t: 'Нужен ключ Яндекс Карт', key_s: 'Вставьте его в строку YKEY в index.html',
+    speak: 'Впереди Гаи, {n} метров'
+  },
+  uz: {
+    tap_t: '«Boshlash» tugmasini bosing', tap_s: 'Joylashuvni kuzatish va ovoz yoqiladi',
+    start: '▶ Boshlash', stop: '■ Toʻxtatish', add: '➕ GAI', sch: 'Sxema', sat: 'Yoʻldosh',
+    search_t: 'Sizni qidiryapmiz…', search_s: 'GPS signalini kutyapmiz',
+    off_t: 'Ogohlantirishlar oʻchirilgan', off_s: 'Yoqish uchun «Boshlash» tugmasini bosing',
+    clear_t: 'Oldinda toza', clear_s: '1 km ichida GAI yoʻq',
+    post_ahead: 'Oldinda GAI', min_ago: '{n} daqiqa oldin', more: 'Yana postlar: {n}',
+    m: 'm', km: 'km', kmh: 'km/soat',
+    gps_wait: 'GPS: kutilmoqda…', gps_acc: 'GPS ±{n} m', gps_denied: 'GPS: ruxsat yoʻq — geolokatsiyaga ruxsat bering',
+    no_server: 'Server bilan aloqa yoʻq', wait_gps: 'Avval GPS signalini kuting',
+    confirm_post: 'GAI ni joylashuvingizda belgilaysizmi?', post_added: 'GAI joylashuvi qoʻshildi', err: 'Xato: ',
+    thanks: 'Rahmat, GAI joylashuvi tasdiqlandi', accepted: 'Qabul qilindi',
+    geo_na: 'Geolokatsiya mavjud emas', sat_na: 'Yoʻldosh rejimi mavjud emas',
+    sheet_title: '🚓 GAI posti', up: '👍 Turibdi', down: '👎 Yoʻq',
+    map_fail_t: 'Xarita yuklanmadi', map_fail_s: 'Kalit va domen cheklovlarini tekshiring',
+    key_t: 'Yandex Xarita kaliti kerak', key_s: 'Uni index.html dagi YKEY qatoriga qoʻying',
+    speak: 'Oldinda GAI, {n} metr'
+  }
+};
+let lang = 'ru';
+try { lang = localStorage.getItem('lang') || (tg?.initDataUnsafe?.user?.language_code === 'uz' ? 'uz' : 'ru'); } catch (e) {}
+function tr(k, p) {
+  let s = (I18N[lang] && I18N[lang][k]) ?? I18N.ru[k] ?? k;
+  if (p) for (const x in p) s = s.replace('{' + x + '}', p[x]);
+  return s;
+}
 
 const THRESHOLDS = [1000, 500, 200];
 const FRONT_ANGLE = 70;
@@ -113,8 +168,9 @@ const LOAD_RADIUS = 20000;
 const POLL_MS = 5000;
 const DEG = Math.PI / 180;
 
-let me = null, prev = null, points = [];
-let started = false, follow = true, watchId = null, wakeLock = null, audioCtx = null;
+let me = null, prev = null, lastFix = null, points = [];
+let started = false, everStarted = false, mapFailed = false, keyMissing = false;
+let follow = true, watchId = null, wakeLock = null, audioCtx = null;
 const alerted = new Set();
 const markers = new Map();
 
@@ -135,13 +191,44 @@ function bearing(a, b, c, d) {
   return (toDeg(Math.atan2(y, x)) + 360) % 360;
 }
 const angDiff = (a, b) => Math.abs(((a - b + 540) % 360) - 180);
-const fmtDist = m => m >= 1000 ? (m / 1000).toFixed(1).replace('.', ',') + ' км' : Math.round(m) + ' м';
+const fmtDist = m => m >= 1000
+  ? (m / 1000).toFixed(1).replace('.', lang === 'ru' ? ',' : '.') + ' ' + tr('km')
+  : Math.round(m) + ' ' + tr('m');
 function toast(t) { const el = $('toast'); el.textContent = t; el.classList.add('show'); setTimeout(() => el.classList.remove('show'), 2400); }
 
 async function api(path, opts = {}) {
   const r = await fetch(path, { ...opts, headers: { 'Content-Type': 'application/json', 'X-Init-Data': tg?.initData || '', ...(opts.headers || {}) } });
   if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.status);
   return r.json();
+}
+
+// ───── Баннер и тексты ─────
+function setBanner(cls, big, title, sub) {
+  const el = $('banner'); el.className = cls;
+  el.innerHTML = `<div class="big">${big}</div><div class="txt"><b>${title}</b>${sub}</div>`;
+}
+function idleBanner() {
+  if (keyMissing) setBanner('idle warn', '🔑', tr('key_t'), tr('key_s'));
+  else if (mapFailed) setBanner('idle warn', '⚠️', tr('map_fail_t'), tr('map_fail_s'));
+  else if (!started) {
+    if (everStarted) setBanner('idle warn', '🚓', tr('off_t'), tr('off_s'));
+    else setBanner('idle warn', '🚓', tr('tap_t'), tr('tap_s'));
+  } else if (!me) setBanner('idle warn', '📡', tr('search_t'), tr('search_s'));
+  else checkAlerts();
+}
+function refreshTexts() {
+  document.documentElement.lang = lang;
+  $('btnStart').textContent = started ? tr('stop') : tr('start');
+  $('btnStart').classList.toggle('on', started);
+  $('btnAdd').textContent = tr('add');
+  $('btnSat').textContent = mapType === 'sat' ? tr('sat') : tr('sch');
+  $('btnLang').textContent = '🌐 ' + lang.toUpperCase();
+  $('spUnit').textContent = tr('kmh');
+  $('shTitle').textContent = tr('sheet_title');
+  $('shUp').textContent = tr('up');
+  $('shDown').textContent = tr('down');
+  if (!me) $('status').textContent = tr('gps_wait');
+  idleBanner();
 }
 
 // ───── Звук / вибрация / голос ─────
@@ -156,17 +243,26 @@ function beep(times = 1, freq = 880) {
     o.connect(g).connect(audioCtx.destination); o.start(t); o.stop(t + 0.25);
   }
 }
-function speak(text) {
-  try { if (!('speechSynthesis' in window)) return;
-    const u = new SpeechSynthesisUtterance(text); u.lang = 'ru-RU'; u.rate = 1.05;
-    speechSynthesis.cancel(); speechSynthesis.speak(u); } catch (e) {}
+function speakAlert(level) {
+  try {
+    if (!('speechSynthesis' in window)) return;
+    let text, voice = null, vlang = 'ru-RU';
+    if (lang === 'uz') {
+      voice = speechSynthesis.getVoices().find(v => v.lang && v.lang.toLowerCase().startsWith('uz')) || null;
+      if (voice) { text = tr('speak', { n: level }); vlang = voice.lang; }
+      else text = I18N.ru.speak.replace('{n}', level);   // нет узбекского голоса — читаем по-русски
+    } else text = tr('speak', { n: level });
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = vlang; if (voice) u.voice = voice; u.rate = 1.05;
+    speechSynthesis.cancel(); speechSynthesis.speak(u);
+  } catch (e) {}
 }
 function notify(level) {
   const times = level <= 200 ? 3 : level <= 500 ? 2 : 1;
   beep(times, level <= 200 ? 1040 : 880);
   try { tg?.HapticFeedback?.notificationOccurred(level <= 200 ? 'error' : 'warning'); } catch (e) {}
   try { navigator.vibrate?.(level <= 200 ? [200, 100, 200, 100, 200] : [250]); } catch (e) {}
-  speak(`Впереди Гаи, ${level} метров`);
+  speakAlert(level);
 }
 
 // ───── Карта (Яндекс) ─────
@@ -183,7 +279,7 @@ $('btnTheme').onclick = () => {
   try { localStorage.setItem('theme', theme); } catch (e) {}
   applyTheme();
 };
-  function loadYandex() {
+function loadYandex() {
   return new Promise((res, rej) => {
     const s = document.createElement('script');
     s.src = `https://api-maps.yandex.ru/v3/?apikey=${encodeURIComponent(YKEY)}&lang=ru_RU`;
@@ -196,7 +292,7 @@ async function initMap() {
   YMapMarker = ymaps3.YMapMarker;
   schemeLayer = new YMapDefaultSchemeLayer({});
   map = new YMap($('map'),
-        { location: { center: [60.63, 41.55], zoom: 12 }, camera: { tilt: 0, azimuth: 0 }, theme },
+    { location: { center: [60.63, 41.55], zoom: 12 }, camera: { tilt: 0, azimuth: 0 }, theme },
     [schemeLayer, new YMapDefaultFeaturesLayer({})]);
 
   const meEl = document.createElement('div');
@@ -216,7 +312,7 @@ function flyTo(lat, lon, zoom, dur = 500) {
 function setMapType(t) {
   if (t === mapType) return;
   if (t === 'sat') {
-    if (!ymaps3.YMapDefaultSatelliteLayer) { toast('Спутник недоступен'); return; }
+    if (!ymaps3.YMapDefaultSatelliteLayer) { toast(tr('sat_na')); return; }
     map.removeChild(schemeLayer);
     satLayer = satLayer || new ymaps3.YMapDefaultSatelliteLayer({});
     map.addChild(satLayer);
@@ -225,8 +321,8 @@ function setMapType(t) {
     map.addChild(schemeLayer);
   }
   mapType = t;
-  $('btnSat').textContent = t === 'sat' ? 'Спутн.' : 'Схема';
   $('btnSat').classList.toggle('on', t === 'sat');
+  refreshTexts();
 }
 function set3d(on) {
   is3d = on;
@@ -260,6 +356,18 @@ async function toggleEvents() {
 // ───── Геопозиция ─────
 function onPos(p) {
   const c = p.coords;
+  const nowMs = Date.now();
+
+  // скорость: из GPS, а если её нет — по перемещению между точками
+  let spd = (c.speed != null && !isNaN(c.speed)) ? c.speed : null;
+  if (spd == null && lastFix) {
+    const dt = (nowMs - lastFix.t) / 1000;
+    if (dt > 0.5) spd = dist(lastFix.lat, lastFix.lon, c.latitude, c.longitude) / dt;
+  }
+  lastFix = { lat: c.latitude, lon: c.longitude, t: nowMs };
+  if (spd == null) $('spVal').textContent = '–';
+  else { const kmh = Math.round(Math.max(0, spd) * 3.6); $('spVal').textContent = kmh < 3 ? 0 : kmh; }
+
   let heading = (c.heading != null && !isNaN(c.heading) && (c.speed ?? 0) > 1) ? c.heading : null;
   if (heading == null && prev && dist(prev.lat, prev.lon, c.latitude, c.longitude) > 12) {
     heading = bearing(prev.lat, prev.lon, c.latitude, c.longitude);
@@ -275,14 +383,13 @@ function onPos(p) {
   if (first) { flyTo(me.lat, me.lon, 16, 0); loadPoints(); }
   else if (follow) flyTo(me.lat, me.lon, undefined, 900);
 
-  const kmh = c.speed != null ? Math.round(c.speed * 3.6) : null;
-  $('status').textContent = `GPS ±${Math.round(c.accuracy)} м` + (kmh != null ? ` · ${kmh} км/ч` : '');
+  $('status').textContent = tr('gps_acc', { n: Math.round(c.accuracy) });
   checkAlerts();
 }
-function onPosErr() { $('status').textContent = 'GPS: нет доступа — разрешите геолокацию'; }
+function onPosErr() { $('status').textContent = tr('gps_denied'); }
 function startWatch() {
   if (watchId != null) return;
-  if (!navigator.geolocation) { toast('Геолокация недоступна'); return; }
+  if (!navigator.geolocation) { toast(tr('geo_na')); return; }
   watchId = navigator.geolocation.watchPosition(onPos, onPosErr, { enableHighAccuracy: true, maximumAge: 1000, timeout: 20000 });
 }
 
@@ -292,7 +399,7 @@ async function loadPoints() {
   try {
     const r = await api(`/api/points?lat=${me.lat}&lon=${me.lon}&radius=${LOAD_RADIUS}`);
     points = r.points; renderMarkers(); checkAlerts();
-  } catch (e) { $('status').textContent = 'Нет связи с сервером'; }
+  } catch (e) { $('status').textContent = tr('no_server'); }
 }
 function mkPointEl(p) {
   const w = document.createElement('div');
@@ -320,15 +427,15 @@ function openSheet(id) {
   const p = points.find(x => x.id === id); if (!p) return;
   selId = id;
   const d = me ? ' · ' + fmtDist(dist(me.lat, me.lon, p.lat, p.lon)) : '';
-  $('shMeta').textContent = `${p.user_name || '—'} · ${p.age_min} мин назад${d}`;
+  $('shMeta').textContent = `${p.user_name || '—'} · ${tr('min_ago', { n: p.age_min })}${d}`;
   $('sheet').hidden = false;
 }
 function closeSheet() { selId = null; $('sheet').hidden = true; }
 async function vote(id, v) {
   try {
     await api(`/api/points/${id}/vote`, { method: 'POST', body: JSON.stringify({ value: v }) });
-    toast(v > 0 ? 'Спасибо, местонахождение Гаи подтверждено' : 'Принято'); closeSheet(); loadPoints();
-  } catch (e) { toast('Ошибка: ' + e.message); }
+    toast(v > 0 ? tr('thanks') : tr('accepted')); closeSheet(); loadPoints();
+  } catch (e) { toast(tr('err') + e.message); }
 }
 
 // ───── Предупреждения ─────
@@ -356,47 +463,40 @@ function checkAlerts() {
   renderBanner(ahead);
 }
 function renderBanner(ahead) {
-  const el = $('banner');
   if (!started) return;
-  if (!ahead.length) {
-    el.className = 'idle warn';
-    el.innerHTML = '<div class="big">✅</div><div class="txt"><b>Впереди чисто</b>Гаи в радиусе 1 км нет</div>';
-    return;
-  }
+  if (!ahead.length) { setBanner('idle warn', '✅', tr('clear_t'), tr('clear_s')); return; }
   const { p, d } = ahead[0];
-  const sub = ahead.length > 1 ? 'Ещё постов: ' + (ahead.length - 1) : (p.age_min + ' мин назад');
-  el.className = d <= 300 ? 'danger' : 'warn';
-  el.innerHTML = `<div class="big">${fmtDist(d)}</div><div class="txt"><b>ГАИ впереди</b>${sub}</div>`;
+  const sub = ahead.length > 1 ? tr('more', { n: ahead.length - 1 }) : tr('min_ago', { n: p.age_min });
+  setBanner(d <= 300 ? 'danger' : 'warn', fmtDist(d), tr('post_ahead'), sub);
 }
 
 // ───── Кнопки ─────
 $('btnStart').onclick = async () => {
-  const b = $('btnStart');
   if (!started) {
-    started = true; initAudio(); startWatch(); beep(1, 660);
+    started = true; everStarted = true; initAudio(); startWatch(); beep(1, 660);
     try { wakeLock = await navigator.wakeLock?.request('screen'); } catch (e) {}
-    b.textContent = '■ Стоп'; b.classList.add('on');
-    $('banner').className = 'idle warn';
-    $('banner').innerHTML = '<div class="big">📡</div><div class="txt"><b>Ищем вас…</b>Ждём сигнал GPS</div>';
-    checkAlerts();
   } else {
-    started = false; b.textContent = '▶ Старт'; b.classList.remove('on');
+    started = false;
     try { await wakeLock?.release(); } catch (e) {} wakeLock = null;
-    $('banner').className = 'idle warn';
-    $('banner').innerHTML = '<div class="big">🚓</div><div class="txt"><b>Предупреждения выключены</b>Нажмите «Старт», чтобы включить</div>';
   }
+  refreshTexts();
 };
 $('btnAdd').onclick = () => {
-  if (!me) { toast('Сначала дождитесь GPS'); return; }
+  if (!me) { toast(tr('wait_gps')); return; }
   const go = async () => {
-    try { await api('/api/points', { method: 'POST', body: JSON.stringify({ lat: me.lat, lon: me.lon }) }); toast('Местонахождение Гаи добавлено'); loadPoints(); }
-    catch (e) { toast('Ошибка: ' + e.message); }
+    try { await api('/api/points', { method: 'POST', body: JSON.stringify({ lat: me.lat, lon: me.lon }) }); toast(tr('post_added')); loadPoints(); }
+    catch (e) { toast(tr('err') + e.message); }
   };
-  if (tg?.showConfirm) tg.showConfirm('Отметить ГАИ в вашей позиции?', ok => ok && go()); else go();
+  if (tg?.showConfirm) tg.showConfirm(tr('confirm_post'), ok => ok && go()); else go();
 };
-$('btnFollow').onclick = () => { follow = true; if (me) flyTo(me.lat, me.lon, Math.max(map.zoom, 16), 500); };
+$('btnFollow').onclick = () => { follow = true; if (me && map) flyTo(me.lat, me.lon, Math.max(map.zoom, 16), 500); };
 $('btnMode').onclick = () => set3d(!is3d);
 $('btnSat').onclick = () => setMapType(mapType === 'sat' ? 'scheme' : 'sat');
+$('btnLang').onclick = () => {
+  lang = lang === 'ru' ? 'uz' : 'ru';
+  try { localStorage.setItem('lang', lang); } catch (e) {}
+  closeSheet(); refreshTexts();
+};
 $('shUp').onclick = () => selId != null && vote(selId, 1);
 $('shDown').onclick = () => selId != null && vote(selId, -1);
 $('shClose').onclick = closeSheet;
@@ -407,15 +507,10 @@ document.addEventListener('visibilitychange', async () => {
 
 // ───── Запуск ─────
 (async () => {
-  if (YKEY.startsWith('ВСТАВЬТЕ')) {
-    $('banner').innerHTML = '<div class="big">🔑</div><div class="txt"><b>Нужен ключ Яндекс Карт</b>Вставьте его в строку YKEY в index.html</div>';
-    return;
-  }
+  refreshTexts();
+  if (YKEY.startsWith('ВСТАВЬТЕ')) { keyMissing = true; idleBanner(); return; }
   try { await loadYandex(); await initMap(); }
-  catch (e) {
-    $('banner').innerHTML = '<div class="big">⚠️</div><div class="txt"><b>Карта не загрузилась</b>Проверьте ключ и ограничения по домену</div>';
-    return;
-  }
+  catch (e) { mapFailed = true; idleBanner(); return; }
   startWatch();
   setInterval(loadPoints, POLL_MS);
 })();
