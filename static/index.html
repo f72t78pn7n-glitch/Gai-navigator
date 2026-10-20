@@ -397,8 +397,6 @@ $('btnAdd').onclick = () => {
 $('btnFollow').onclick = () => { follow = true; if (me) flyTo(me.lat, me.lon, Math.max(map.zoom, 16), 500); };
 $('btnMode').onclick = () => set3d(!is3d);
 $('btnSat').onclick = () => setMapType(mapType === 'sat' ? 'scheme' : 'sat');
-$('btnTraffic').onclick = toggleTraffic;
-$('btnEvents').onclick = toggleEvents;
 $('shUp').onclick = () => selId != null && vote(selId, 1);
 $('shDown').onclick = () => selId != null && vote(selId, -1);
 $('shClose').onclick = closeSheet;
