@@ -77,10 +77,9 @@
 </div>
 
 <div id="tools">
+    <button id="btnTheme">🌙</button>
   <button id="btnMode">2D</button>
   <button id="btnSat">Схема</button>
-  <button id="btnTraffic">Пробки</button>
-  <button id="btnEvents">События</button>
 </div>
 
 <div id="sheet" hidden>
@@ -110,7 +109,7 @@ if (tg) { tg.ready(); tg.expand(); try { tg.disableVerticalSwipes?.(); } catch (
 
 const THRESHOLDS = [1000, 500, 200];
 const FRONT_ANGLE = 70;
-const LOAD_RADIUS = 5000;
+const LOAD_RADIUS = 20000;
 const POLL_MS = 5000;
 const DEG = Math.PI / 180;
 
@@ -171,7 +170,20 @@ function notify(level) {
 }
 
 // ───── Карта (Яндекс) ─────
-function loadYandex() {
+let theme = 'dark';
+try { theme = localStorage.getItem('theme') || (tg?.colorScheme === 'light' ? 'light' : 'dark'); } catch (e) {}
+$('btnTheme').textContent = theme === 'dark' ? '🌙' : '☀️';
+function applyTheme() {
+  map.update({ theme });
+  try { schemeLayer.update({ theme }); } catch (e) {}
+  $('btnTheme').textContent = theme === 'dark' ? '🌙' : '☀️';
+}
+$('btnTheme').onclick = () => {
+  theme = theme === 'dark' ? 'light' : 'dark';
+  try { localStorage.setItem('theme', theme); } catch (e) {}
+  applyTheme();
+};
+  function loadYandex() {
   return new Promise((res, rej) => {
     const s = document.createElement('script');
     s.src = `https://api-maps.yandex.ru/v3/?apikey=${encodeURIComponent(YKEY)}&lang=ru_RU`;
@@ -184,7 +196,7 @@ async function initMap() {
   YMapMarker = ymaps3.YMapMarker;
   schemeLayer = new YMapDefaultSchemeLayer({});
   map = new YMap($('map'),
-    { location: { center: [60.63, 41.55], zoom: 12 }, camera: { tilt: 0, azimuth: 0 } },
+        { location: { center: [60.63, 41.55], zoom: 12 }, camera: { tilt: 0, azimuth: 0 }, theme },
     [schemeLayer, new YMapDefaultFeaturesLayer({})]);
 
   const meEl = document.createElement('div');
