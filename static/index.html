@@ -397,7 +397,7 @@ function startWatch() {
 async function loadPoints() {
   if (!me) return;
   try {
-    const r = await api(`/api/points?lat=${me.lat}&lon=${me.lon}&radius=${LOAD_RADIUS}`);
+    const r = await api(`/api/points?lat=${me.lat}&lon=${me.lon}&radius=${LOAD_RADIUS}&world=1`);
     points = r.points; renderMarkers(); checkAlerts();
   } catch (e) { $('status').textContent = tr('no_server'); }
 }
