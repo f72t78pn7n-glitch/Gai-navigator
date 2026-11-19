@@ -279,27 +279,36 @@ class Vote(BaseModel):
     value: int = Field(ge=-1, le=1)
 
 
+
 @app.get("/api/points")
 def get_points(
     lat: float = Query(ge=-90, le=90),
     lon: float = Query(ge=-180, le=180),
     radius: int = Query(5000, ge=100, le=50000),
+    world: int = Query(0),
     user: dict = Depends(current_user),
 ):
     now = int(time.time())
-    dlat = radius / 111_320
-    dlon = radius / (111_320 * max(math.cos(math.radians(lat)), 0.01))
+    show_all = world == 1 and user.get("id") in ADMIN_IDS
     with db() as c:
-        rows = c.execute(
-            """SELECT * FROM points
-               WHERE lat BETWEEN ? AND ? AND lon BETWEEN ? AND ?
-                 AND updated_at > ? AND score > -2""",
-            (lat - dlat, lat + dlat, lon - dlon, lon + dlon, now - POINT_TTL_MIN * 60),
-        ).fetchall()
+        if show_all:
+            rows = c.execute(
+                "SELECT * FROM points WHERE updated_at > ? AND score > -2",
+                (now - POINT_TTL_MIN * 60,),
+            ).fetchall()
+        else:
+            dlat = radius / 111_320
+            dlon = radius / (111_320 * max(math.cos(math.radians(lat)), 0.01))
+            rows = c.execute(
+                """SELECT * FROM points
+                   WHERE lat BETWEEN ? AND ? AND lon BETWEEN ? AND ?
+                     AND updated_at > ? AND score > -2""",
+                (lat - dlat, lat + dlat, lon - dlon, lon + dlon, now - POINT_TTL_MIN * 60),
+            ).fetchall()
     out = []
     for r in rows:
         d = haversine(lat, lon, r["lat"], r["lon"])
-        if d <= radius:
+        if show_all or d <= radius:
             out.append(
                 {
                     "id": r["id"],
@@ -313,9 +322,9 @@ def get_points(
                 }
             )
     out.sort(key=lambda p: p["distance"])
-    return {"points": out}
-
-
+    return {"points": out, "admin": show_all}
+    
+    
 @app.post("/api/points")
 def add_point(p: NewPoint, user: dict = Depends(current_user)):
     name = user.get("first_name", "—")
