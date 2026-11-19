@@ -1,9 +1,5 @@
 """
 GAI Navigator — Telegram Mini App.
-
-Бот читает геолокации из группы и сохраняет их как точки.
-Mini App показывает карту и предупреждает при приближении.
-
 Запуск:  python main.py
 """
 import asyncio
@@ -39,13 +35,13 @@ from pydantic import BaseModel, Field
 load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
-BASE_URL = os.getenv("BASE_URL", "").strip().rstrip("/")  # https://xxxx.trycloudflare.com
+BASE_URL = os.getenv("BASE_URL", "").strip().rstrip("/")
 PORT = int(os.getenv("PORT", "8000"))
 DB_PATH = os.getenv("DB_PATH", "points.db")
-POINT_TTL_MIN = int(os.getenv("POINT_TTL_MINUTES", "120"))  # сколько живёт точка
-DEV_MODE = os.getenv("DEV_MODE", "0") == "1"  # 1 = не проверять подпись Telegram (только для тестов)
-# Если задано — бот принимает локации только из этих чатов (id через запятую)
+POINT_TTL_MIN = int(os.getenv("POINT_TTL_MINUTES", "120"))
+DEV_MODE = os.getenv("DEV_MODE", "0") == "1"
 ALLOWED_CHATS = {int(x) for x in os.getenv("ALLOWED_CHAT_IDS", "").split(",") if x.strip()}
+ADMIN_IDS = {int(x) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip()}
 
 if not BOT_TOKEN:
     raise SystemExit("Не задан BOT_TOKEN в файле .env")
@@ -90,9 +86,7 @@ def init_db():
             )
             """
         )
-        c.execute(
-            "CREATE UNIQUE INDEX IF NOT EXISTS ux_points_msg ON points(chat_id, message_id)"
-        )
+        c.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_points_msg ON points(chat_id, message_id)")
         c.execute("CREATE INDEX IF NOT EXISTS ix_points_geo ON points(lat, lon)")
         c.execute(
             """
@@ -104,20 +98,53 @@ def init_db():
             )
             """
         )
+        ensure_users(c)
+
+
+def ensure_users(c):
+    c.execute(
+        """CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY,
+            name TEXT,
+            username TEXT,
+            first_seen INTEGER,
+            last_seen INTEGER,
+            app_opens INTEGER NOT NULL DEFAULT 0,
+            bot_started INTEGER NOT NULL DEFAULT 0)"""
+    )
+
+
+_seen = {}
+
+
+def track_user(uid, name, username, app=False, bot=False):
+    if not uid:
+        return
+    now = int(time.time())
+    if app and not bot and now - _seen.get(uid, 0) < 300:
+        return  # заход в приложение считаем не чаще раза в 5 минут
+    _seen[uid] = now
+    with db() as c:
+        ensure_users(c)
+        c.execute(
+            """INSERT INTO users (id, name, username, first_seen, last_seen, app_opens, bot_started)
+               VALUES (?,?,?,?,?,?,?)
+               ON CONFLICT(id) DO UPDATE SET
+                 name=excluded.name, username=excluded.username, last_seen=excluded.last_seen,
+                 app_opens=users.app_opens+excluded.app_opens,
+                 bot_started=MAX(users.bot_started, excluded.bot_started)""",
+            (uid, name, username, now, now, 1 if app else 0, 1 if bot else 0),
+        )
 
 
 def upsert_point(chat_id, message_id, lat, lon, user_id, user_name):
     now = int(time.time())
     with db() as c:
         row = c.execute(
-            "SELECT id FROM points WHERE chat_id=? AND message_id=?",
-            (chat_id, message_id),
+            "SELECT id FROM points WHERE chat_id=? AND message_id=?", (chat_id, message_id)
         ).fetchone()
-        if row:  # live-локация обновилась
-            c.execute(
-                "UPDATE points SET lat=?, lon=?, updated_at=? WHERE id=?",
-                (lat, lon, now, row["id"]),
-            )
+        if row:
+            c.execute("UPDATE points SET lat=?, lon=?, updated_at=? WHERE id=?", (lat, lon, now, row["id"]))
         else:
             c.execute(
                 """INSERT INTO points
@@ -150,7 +177,6 @@ def haversine(lat1, lon1, lat2, lon2) -> float:
 
 
 def verify_init_data(init_data: str) -> dict:
-    """Проверяет подпись initData от Telegram Mini App. Возвращает данные пользователя."""
     if DEV_MODE and not init_data:
         return {"id": 0, "first_name": "dev"}
     if not init_data:
@@ -171,7 +197,12 @@ def verify_init_data(init_data: str) -> dict:
 
 
 def current_user(x_init_data: str = Header(default="")) -> dict:
-    return verify_init_data(x_init_data)
+    u = verify_init_data(x_init_data)
+    try:
+        track_user(u.get("id"), u.get("first_name"), u.get("username"), app=True)
+    except Exception:
+        log.exception("track_user")
+    return u
 
 
 # ───────────────────────── Telegram-бот ─────────────────────────
@@ -186,7 +217,6 @@ def app_url() -> str:
 
 
 def open_app_button_group() -> InlineKeyboardMarkup:
-    # В группах web_app-кнопки запрещены, поэтому ссылка на Main Mini App бота
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="🚓 Открыть навигатор", url=f"https://t.me/{BOT_USERNAME}?startapp")]
@@ -196,10 +226,10 @@ def open_app_button_group() -> InlineKeyboardMarkup:
 
 @dp.message(CommandStart(), F.chat.type == "private")
 async def cmd_start(m: Message):
+    if m.from_user:
+        track_user(m.from_user.id, m.from_user.full_name, m.from_user.username, bot=True)
     kb = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="🚓 Открыть навигатор", web_app=WebAppInfo(url=app_url()))]
-        ]
+        inline_keyboard=[[InlineKeyboardButton(text="🚓 Открыть навигатор", web_app=WebAppInfo(url=app_url()))]]
     )
     await m.answer(
         "Привет! Добавь меня в группу, где скидывают геолокации постов ГАИ.\n"
@@ -214,6 +244,36 @@ async def cmd_app(m: Message):
     await m.answer("Навигатор с постами:", reply_markup=open_app_button_group())
 
 
+@dp.message(Command("stats"))
+async def cmd_stats(m: Message):
+    if not m.from_user or m.from_user.id not in ADMIN_IDS:
+        return
+    now = int(time.time())
+    with db() as c:
+        ensure_users(c)
+
+        def q(sql, *a):
+            return c.execute(sql, a).fetchone()[0]
+
+        total = q("SELECT COUNT(*) FROM users")
+        bots = q("SELECT COUNT(*) FROM users WHERE bot_started=1")
+        apps = q("SELECT COUNT(*) FROM users WHERE app_opens>0")
+        d1 = q("SELECT COUNT(*) FROM users WHERE last_seen>?", now - 86400)
+        d7 = q("SELECT COUNT(*) FROM users WHERE last_seen>?", now - 7 * 86400)
+        new1 = q("SELECT COUNT(*) FROM users WHERE first_seen>?", now - 86400)
+        pts = q("SELECT COUNT(*) FROM points")
+    await m.answer(
+        f"📊 Статистика\n"
+        f"Всего пользователей: {total}\n"
+        f"Нажали /start: {bots}\n"
+        f"Открывали приложение: {apps}\n"
+        f"Активны за 24 часа: {d1}\n"
+        f"Активны за 7 дней: {d7}\n"
+        f"Новые за 24 часа: {new1}\n"
+        f"Точек сейчас на карте: {pts}"
+    )
+
+
 @dp.message(F.location)
 @dp.edited_message(F.location)
 async def on_location(m: Message):
@@ -224,7 +284,7 @@ async def on_location(m: Message):
     uid = m.from_user.id if m.from_user else None
     upsert_point(m.chat.id, m.message_id, loc.latitude, loc.longitude, uid, name)
     log.info("Точка из чата %s: %.5f, %.5f", m.chat.id, loc.latitude, loc.longitude)
-    try:  # реакция вместо ответа, чтобы не спамить в группе
+    try:
         await m.react([ReactionTypeEmoji(emoji="👍")])
     except Exception:
         pass
@@ -279,7 +339,6 @@ class Vote(BaseModel):
     value: int = Field(ge=-1, le=1)
 
 
-
 @app.get("/api/points")
 def get_points(
     lat: float = Query(ge=-90, le=90),
@@ -289,6 +348,7 @@ def get_points(
     user: dict = Depends(current_user),
 ):
     now = int(time.time())
+    # все точки по всему миру видит только админ (ADMIN_IDS в Render)
     show_all = world == 1 and user.get("id") in ADMIN_IDS
     with db() as c:
         if show_all:
@@ -323,8 +383,8 @@ def get_points(
             )
     out.sort(key=lambda p: p["distance"])
     return {"points": out, "admin": show_all}
-    
-    
+
+
 @app.post("/api/points")
 def add_point(p: NewPoint, user: dict = Depends(current_user)):
     name = user.get("first_name", "—")
@@ -351,11 +411,8 @@ def vote_point(point_id: int, v: Vote, user: dict = Depends(current_user)):
         score = c.execute(
             "SELECT COALESCE(SUM(value),0) s FROM votes WHERE point_id=?", (point_id,)
         ).fetchone()["s"]
-        if v.value > 0:  # «стоит» продлевает жизнь точке
-            c.execute(
-                "UPDATE points SET score=?, updated_at=? WHERE id=?",
-                (score, int(time.time()), point_id),
-            )
+        if v.value > 0:
+            c.execute("UPDATE points SET score=?, updated_at=? WHERE id=?", (score, int(time.time()), point_id))
         else:
             c.execute("UPDATE points SET score=? WHERE id=?", (score, point_id))
     return {"ok": True, "score": score}
